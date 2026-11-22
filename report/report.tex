@@ -24,19 +24,37 @@
 \maketitle
 
 \begin{abstract}
-We train a deep convolutional GAN (DCGAN) with a spectrally-normalized discriminator on all 81{,}444 paintings of the WikiArt dataset at $64\times64$ resolution. We report the hyperparameters, training dynamics, and sample quality, measured with FID and Inception Score computed using PyTorch-Ignite. \TODO{one-sentence headline result: final FID / IS}
+Generative adversarial networks (GANs) can synthesize realistic images, but paintings are a hard target. They span centuries of styles, subjects, and compositions, and unlike faces or objects they have no consistent spatial alignment. We train an unconditional deep convolutional GAN (DCGAN) with a spectrally normalized discriminator and a hinge loss on all 81{,}444 paintings in WikiArt at $64\times64$ resolution. We report the hyperparameters, training dynamics, and sample quality, measured with the Fr\'echet Inception Distance (FID) and Inception Score (IS) computed with PyTorch-Ignite. \TODO{headline result: final FID / IS}. Code: \TODO{github url}.
 \end{abstract}
 
-\section{Method}
-\textbf{Data.} The Kaggle WikiArt dataset contains 81{,}444 paintings across 27 styles. We center-crop each image to a square, resize it to $64\times64$ with Lanczos filtering, and scale pixels to $[-1,1]$. During training we apply random horizontal flips. Style labels are not used, so the GAN is unconditional.
+\section{Introduction}
+A GAN~\cite{goodfellow2014gan} trains a generator, which maps noise to images, against a discriminator, which learns to separate generated images from real data and provides the generator's learning signal. DCGAN~\cite{radford2016dcgan} made all-convolutional GANs trainable on natural images, and spectral normalization~\cite{miyato2018sn} improved stability further by bounding the discriminator's Lipschitz constant. We apply these techniques to WikiArt: 81{,}444 paintings from 27 movements, ranging from Renaissance portraiture to Abstract Expressionism and Ukiyo-e. Unlike faces or objects, paintings have no consistent spatial alignment. A model has to capture both global composition (horizons, figures) and the palettes and brushwork that set styles apart, without \emph{mode collapsing} onto a few prototypes. We contribute a reproducible pipeline that trains on the full dataset in under 30 minutes on a laptop GPU, an analysis of its training dynamics, and an IS/FID evaluation.
 
-\textbf{Architecture.} The generator follows DCGAN~\cite{radford2016dcgan}. A 128-d Gaussian latent passes through a $4\times4$ transposed convolution, then three stride-2 transposed-conv/BatchNorm/ReLU blocks (512$\to$256$\to$128$\to$64 channels), then a final transposed convolution with $\tanh$ (3.8M parameters). The discriminator mirrors it with four stride-2 convolutions (64$\to$512 channels), LeakyReLU(0.2), and a $4\times4$ convolution that outputs one logit (2.8M parameters). Every discriminator layer uses spectral normalization~\cite{miyato2018sn} in place of BatchNorm.
+\section{Problem Formulation}
+\label{sec:formulation}
+Let $p_{\text{data}}$ be the distribution of paintings $x\in\mathcal{X}=[-1,1]^{3\times64\times64}$, and let $z\sim p_z=\mathcal{N}(0,I_{128})$. A generator $G_\theta:\mathbb{R}^{128}\to\mathcal{X}$ induces a distribution $p_g$, and a discriminator $D_\phi:\mathcal{X}\to\mathbb{R}$ outputs a realness logit. The original GAN is the minimax game
+\begin{equation}
+\textstyle\min_\theta\max_\phi\; \mathbb{E}_{x\sim p_{\text{data}}}\!\left[\log\sigma(D_\phi(x))\right]+\mathbb{E}_{z\sim p_z}\!\left[\log\!\left(1-\sigma(D_\phi(G_\theta(z)))\right)\right],
+\label{eq:minimax}
+\end{equation}
+whose optimum is $p_g=p_{\text{data}}$~\cite{goodfellow2014gan}. Because Eq.~\eqref{eq:minimax} gives vanishing gradients and unstable updates, we follow~\cite{lim2017geometric,miyato2018sn} and alternate between minimizing the hinge losses
+\begin{equation}
+\mathcal{L}_D=\mathbb{E}_{x}\!\left[\max(0,1-D(x))\right]+\mathbb{E}_{z}\!\left[\max(0,1+D(G(z)))\right],\qquad
+\mathcal{L}_G=-\mathbb{E}_{z}\!\left[D(G(z))\right].
+\label{eq:hinge}
+\end{equation}
+In addition, every discriminator weight $W$ is replaced by $W/\sigma_{\max}(W)$, with $\sigma_{\max}$ estimated by one power iteration per step~\cite{miyato2018sn}. This makes $D$ 1-Lipschitz.
 
-\textbf{Objective.} We use the hinge loss: $L_D=\mathbb{E}[\max(0,1-D(x))]+\mathbb{E}[\max(0,1+D(G(z)))]$ and $L_G=-\mathbb{E}[D(G(z))]$. Samples and metrics use an exponential moving average (EMA) of the generator weights.
+\textbf{Metrics.} Both metrics use an ImageNet InceptionV3. The Inception Score~\cite{salimans2016improved}, $\mathrm{IS}=\exp\!\big(\mathbb{E}_{x\sim p_g}\mathrm{KL}(p(y|x)\,\|\,p(y))\big)$, is higher when samples are confidently classified and the classes are diverse. FID~\cite{heusel2017gans} fits Gaussians to the 2048-d pool features of real and generated images and computes $\|\mu_r-\mu_g\|_2^2+\mathrm{Tr}\big(\Sigma_r+\Sigma_g-2(\Sigma_r\Sigma_g)^{1/2}\big)$; lower is better. FID is our primary metric because it compares samples with the target data directly, whereas IS rewards ImageNet object structure that paintings mostly lack.
+
+\section{Method and Experimental Setup}
+\textbf{Data.} We center-crop each painting to a square, resize it to $64\times64$ with Lanczos filtering, scale it to $[-1,1]$, and apply random horizontal flips. Style labels are not used. The whole dataset (1\,GB as uint8) is kept in GPU memory.
+
+\textbf{Architecture.} We use a DCGAN generator~\cite{radford2016dcgan}. It applies a $4\times4$ transposed convolution to $z$, then three stride-2 transposed-conv/BatchNorm/ReLU blocks (512$\to$64 channels), then a stride-2 transposed convolution with $\tanh$ (3.8M parameters). The discriminator mirrors it with four stride-2 convolutions (64$\to$512 channels) using LeakyReLU(0.2), then a $4\times4$ convolution that outputs one logit (2.8M parameters). All discriminator layers are spectrally normalized, and none use BatchNorm. Weights are initialized from $\mathcal{N}(0,0.02)$. We evaluate an exponential moving average (EMA) of the generator weights~\cite{yazici2019unusual}. Table~\ref{tab:hparams} lists the hyperparameters.
 
 \begin{table}[h]
 \centering
-\caption{Hyperparameters.}
+\caption{Hyperparameters of the main run.}
 \label{tab:hparams}
 \small
 \begin{tabular}{ll@{\hspace{2em}}ll}
@@ -45,12 +63,12 @@ Resolution & $64\times64$ & Optimizer & Adam ($\beta_1{=}0.5$, $\beta_2{=}0.999$
 Batch size & 128 & Learning rate (G / D) & $2\times10^{-4}$ / $2\times10^{-4}$ \\
 Latent dim & 128 & D steps per G step & 1 \\
 Epochs & 100 (63.6k iterations) & Generator EMA decay & 0.999 \\
-Loss & hinge & Precision & bf16 autocast \\
+Loss & hinge, Eq.~\eqref{eq:hinge} & Precision & bf16 autocast \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Evaluation.} We follow the PyTorch-Ignite GAN evaluation guide and use \texttt{ignite.metrics.FID} and \texttt{InceptionScore} inside an Ignite \texttt{Engine}. Generated and real images are mapped to $[0,1]$, bilinearly upsampled to $299\times299$, and ImageNet-normalized for torchvision's InceptionV3. FID is computed on 2048-d pool features between 10{,}000 generated images and 10{,}000 random training images. \TODO{training time on RTX 5070 laptop GPU}
+\textbf{Evaluation and compute.} Following the PyTorch-Ignite GAN evaluation guide, we compute \texttt{ignite.metrics.FID} and \texttt{InceptionScore} in an Ignite \texttt{Engine}. Images are mapped to $[0,1]$, bilinearly upsampled to $299\times299$, and ImageNet-normalized. Each checkpoint is scored on 10k generated images and 10k training images, with the same real subset and latent seeds every time. torchvision's Inception weights differ from the TensorFlow ones, so absolute FIDs are not directly comparable to published numbers. Training runs on one RTX 5070 Laptop GPU (8\,GB) at about 5.8k images/s (14\,s per epoch, about 24\,min in total).
 
 \section{Results}
 \TODO{loss curve figure + discussion}
@@ -59,12 +77,18 @@ Loss & hinge & Precision & bf16 autocast \\
 
 \TODO{sample grid figure}
 
-\TODO{discussion: what works, failure modes}
+\section{Discussion}
+\TODO{what works, failure modes (early partial mode collapse around epoch 20, recovery by epoch 30), limitations, future work}
 
 {\small
 \begin{thebibliography}{9}
+\bibitem{goodfellow2014gan} I.~Goodfellow, J.~Pouget-Abadie, M.~Mirza, B.~Xu, D.~Warde-Farley, S.~Ozair, A.~Courville, and Y.~Bengio. Generative adversarial nets. \emph{NeurIPS}, 2014.
 \bibitem{radford2016dcgan} A.~Radford, L.~Metz, and S.~Chintala. Unsupervised representation learning with deep convolutional generative adversarial networks. \emph{ICLR}, 2016.
 \bibitem{miyato2018sn} T.~Miyato, T.~Kataoka, M.~Koyama, and Y.~Yoshida. Spectral normalization for generative adversarial networks. \emph{ICLR}, 2018.
+\bibitem{lim2017geometric} J.~H.~Lim and J.~C.~Ye. Geometric GAN. \emph{arXiv:1705.02894}, 2017.
+\bibitem{salimans2016improved} T.~Salimans, I.~Goodfellow, W.~Zaremba, V.~Cheung, A.~Radford, and X.~Chen. Improved techniques for training GANs. \emph{NeurIPS}, 2016.
+\bibitem{heusel2017gans} M.~Heusel, H.~Ramsauer, T.~Unterthiner, B.~Nessler, and S.~Hochreiter. GANs trained by a two time-scale update rule converge to a local Nash equilibrium. \emph{NeurIPS}, 2017.
+\bibitem{yazici2019unusual} Y.~Yaz{\i}c{\i}, C.-S.~Foo, S.~Winkler, K.-H.~Yap, G.~Piliouras, and V.~Chandrasekhar. The unusual effectiveness of averaging in GAN training. \emph{ICLR}, 2019.
 \end{thebibliography}
 }
 \end{document}
