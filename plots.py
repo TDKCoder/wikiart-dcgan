@@ -98,7 +98,7 @@ def main():
         fig.savefig(out / f"fid.{args.fmt}")
         plt.close(fig)
 
-        fig, (a, b) = plt.subplots(1, 2, figsize=(5.5, 1.75), gridspec_kw={"wspace": 0.45})
+        fig, (a, b) = plt.subplots(1, 2, figsize=(5.5, 1.3), gridspec_kw={"wspace": 0.45})
         plot_pair(a, losses[args.runs[0]], ["loss_d", "loss_g"], ["D loss", "G loss"], "hinge loss")
         a.set_title("(a)", loc="left")
         plot_fid(b, fid_runs, labels)
