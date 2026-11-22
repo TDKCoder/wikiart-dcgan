@@ -1,0 +1,70 @@
+\documentclass{article}
+\PassOptionsToPackage{numbers,compress}{natbib}
+\usepackage[preprint]{neurips_2025}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath,amsfonts}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
+
+\title{Generating Paintings with a Spectrally-Normalized DCGAN on WikiArt}
+
+\author{%
+  \TODO{Your Name} \\
+  ECE 285, UC San Diego \\
+  \texttt{\TODO{email}}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We train a deep convolutional GAN (DCGAN) with a spectrally-normalized discriminator on all 81{,}444 paintings of the WikiArt dataset at $64\times64$ resolution. We report the hyperparameters, training dynamics, and sample quality, measured with FID and Inception Score computed using PyTorch-Ignite. \TODO{one-sentence headline result: final FID / IS}
+\end{abstract}
+
+\section{Method}
+\textbf{Data.} The Kaggle WikiArt dataset contains 81{,}444 paintings across 27 styles. We center-crop each image to a square, resize it to $64\times64$ with Lanczos filtering, and scale pixels to $[-1,1]$. During training we apply random horizontal flips. Style labels are not used, so the GAN is unconditional.
+
+\textbf{Architecture.} The generator follows DCGAN~\cite{radford2016dcgan}. A 128-d Gaussian latent passes through a $4\times4$ transposed convolution, then three stride-2 transposed-conv/BatchNorm/ReLU blocks (512$\to$256$\to$128$\to$64 channels), then a final transposed convolution with $\tanh$ (3.8M parameters). The discriminator mirrors it with four stride-2 convolutions (64$\to$512 channels), LeakyReLU(0.2), and a $4\times4$ convolution that outputs one logit (2.8M parameters). Every discriminator layer uses spectral normalization~\cite{miyato2018sn} in place of BatchNorm.
+
+\textbf{Objective.} We use the hinge loss: $L_D=\mathbb{E}[\max(0,1-D(x))]+\mathbb{E}[\max(0,1+D(G(z)))]$ and $L_G=-\mathbb{E}[D(G(z))]$. Samples and metrics use an exponential moving average (EMA) of the generator weights.
+
+\begin{table}[h]
+\centering
+\caption{Hyperparameters.}
+\label{tab:hparams}
+\small
+\begin{tabular}{ll@{\hspace{2em}}ll}
+\toprule
+Resolution & $64\times64$ & Optimizer & Adam ($\beta_1{=}0.5$, $\beta_2{=}0.999$) \\
+Batch size & 128 & Learning rate (G / D) & $2\times10^{-4}$ / $2\times10^{-4}$ \\
+Latent dim & 128 & D steps per G step & 1 \\
+Epochs & 100 (63.6k iterations) & Generator EMA decay & 0.999 \\
+Loss & hinge & Precision & bf16 autocast \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Evaluation.} We follow the PyTorch-Ignite GAN evaluation guide and use \texttt{ignite.metrics.FID} and \texttt{InceptionScore} inside an Ignite \texttt{Engine}. Generated and real images are mapped to $[0,1]$, bilinearly upsampled to $299\times299$, and ImageNet-normalized for torchvision's InceptionV3. FID is computed on 2048-d pool features between 10{,}000 generated images and 10{,}000 random training images. \TODO{training time on RTX 5070 laptop GPU}
+
+\section{Results}
+\TODO{loss curve figure + discussion}
+
+\TODO{FID/IS table (and FID vs epoch figure)}
+
+\TODO{sample grid figure}
+
+\TODO{discussion: what works, failure modes}
+
+{\small
+\begin{thebibliography}{9}
+\bibitem{radford2016dcgan} A.~Radford, L.~Metz, and S.~Chintala. Unsupervised representation learning with deep convolutional generative adversarial networks. \emph{ICLR}, 2016.
+\bibitem{miyato2018sn} T.~Miyato, T.~Kataoka, M.~Koyama, and Y.~Yoshida. Spectral normalization for generative adversarial networks. \emph{ICLR}, 2018.
+\end{thebibliography}
+}
+\end{document}

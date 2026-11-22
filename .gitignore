@@ -1,0 +1,25 @@
+# data and training outputs (large)
+data/
+runs/
+*.pt
+*.npy
+*.npz
+
+# course handout and local agent notes
+ece285_hw2.pdf
+*:Zone.Identifier
+CLAUDE.md
+.claude/
+
+# python
+__pycache__/
+*.pyc
+
+# LaTeX build artifacts
+report/*.aux
+report/*.log
+report/*.out
+report/*.synctex.gz
+report/*.fls
+report/*.fdb_latexmk
+report/report.pdf
