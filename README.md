@@ -8,6 +8,19 @@ with FID and Inception Score using [PyTorch-Ignite](https://pytorch-ignite.ai/bl
 - **Discriminator:** DCGAN-style conv net with spectral normalization in every layer and no BatchNorm.
 - **Training:** hinge loss, Adam (lr 2e-4, betas 0.5/0.999), batch size 128, bf16 autocast, EMA of generator weights.
 
+## Results (epoch 100, 10k samples, EMA generator)
+
+| Run | FID ↓ | IS ↑ |
+|---|---|---|
+| Real WikiArt images | – | 7.62 |
+| Baseline (lr G = lr D = 2e-4) | **61.5** | **4.64** |
+| TTUR (lr G 1e-4, lr D 4e-4) | 75.3 | 3.98 |
+
+FID uses Ignite's torchvision InceptionV3 (2048-d pool features), so it is not directly comparable to
+published TensorFlow-Inception numbers. Samples and curves are in `report/figs/`.
+
+![samples](report/figs/samples_dcgan64.png)
+
 ## Files
 
 | File | Purpose |
@@ -28,9 +41,10 @@ Requires PyTorch ≥ 2.7 with CUDA, plus `pip install pytorch-ignite scipy panda
 kaggle datasets download steubk/wikiart -p data/raw      # 31.4 GB
 python preprocess.py                                     # ~1 min on 22 cores
 python train.py --name dcgan64 --res 64 --epochs 100     # ~25 min on an RTX 5070 Laptop GPU
+python train.py --name dcgan64_ttur --res 64 --epochs 100 --lr_g 1e-4 --lr_d 4e-4   # TTUR ablation
 python evaluate.py runs/dcgan64/ckpt_*.pt --n 10000 --real_is
-python plots.py dcgan64 --out report/figs
-python sample.py runs/dcgan64/ckpt_100.pt --out report/figs/samples.png --interp 4
+python plots.py dcgan64 dcgan64_ttur --labels baseline TTUR --out report/figs
+python sample.py runs/dcgan64/ckpt_100.pt --out report/figs/samples_dcgan64.png --n 32 --interp 2
 ```
 
 On systems whose system `libstdc++` is older than conda's, run `source env.sh` first.

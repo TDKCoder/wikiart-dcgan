@@ -29,11 +29,11 @@
 \maketitle
 
 \begin{abstract}
-Paintings are a hard target for generative adversarial networks (GANs): they span centuries of styles and subjects and lack the spatial alignment of faces or objects. We train an unconditional DCGAN with a spectrally normalized discriminator and a hinge loss on all 81{,}444 WikiArt paintings at $64\times64$. Our best model reaches an FID of \TODO{X} and an IS of \TODO{Y} (real data: IS 7.62), computed with PyTorch-Ignite, and we analyze its training dynamics and failure modes. Code: \url{https://github.com/TDKCoder/wikiart-dcgan}.
+Paintings are a hard target for generative adversarial networks (GANs): they span centuries of styles and subjects and lack the spatial alignment of faces or objects. We train an unconditional DCGAN with a spectrally normalized discriminator and a hinge loss on all 81{,}444 WikiArt paintings at $64\times64$. Our best model reaches an FID of 61.5 and an IS of 4.64 (real data: IS 7.62) under PyTorch-Ignite, and we analyze its training dynamics and failure modes. Code: \url{https://github.com/TDKCoder/wikiart-dcgan}.
 \end{abstract}
 
 \section{Introduction}
-GANs~\cite{goodfellow2014gan} train a generator against a discriminator that separates generated images from real ones. DCGAN~\cite{radford2016dcgan} made convolutional GANs practical, and spectral normalization~\cite{miyato2018sn} stabilized them by bounding the discriminator's Lipschitz constant. We apply both to WikiArt, a collection of paintings from 27 movements ranging from Renaissance portraiture to Abstract Expressionism. A model must capture global composition as well as the palettes and brushwork that set styles apart, without \emph{mode collapsing} onto a few prototypes. We contribute a 30-minute laptop-GPU training pipeline, an analysis of its training dynamics, and an IS/FID evaluation with a learning-rate ablation.
+GANs~\cite{goodfellow2014gan} train a generator against a discriminator that separates generated images from real ones. DCGAN~\cite{radford2016dcgan} made convolutional GANs practical, and spectral normalization~\cite{miyato2018sn} stabilized them by bounding the discriminator's Lipschitz constant. We apply both to WikiArt, which spans 27 movements from Renaissance portraiture to Abstract Expressionism. A model must capture global composition as well as the palettes and brushwork that set styles apart, without \emph{mode collapsing} onto a few prototypes. We contribute a 30-minute laptop-GPU training pipeline, an analysis of its training dynamics, and an IS/FID evaluation with a learning-rate ablation.
 
 \section{Problem Formulation}
 \label{sec:formulation}
@@ -52,7 +52,7 @@ Each discriminator weight $W$ is replaced by $W/\sigma_{\max}(W)$, estimated wit
 \textbf{Metrics.} The Inception Score~\cite{salimans2016improved} is $\mathrm{IS}=\exp\big(\mathbb{E}_{x\sim p_g}\mathrm{KL}(p(y|x)\,\|\,p(y))\big)$ under an ImageNet InceptionV3 classifier (higher is better). FID~\cite{heusel2017gans} fits Gaussians to the 2048-d Inception pool features of real and generated images and computes $\|\mu_r-\mu_g\|_2^2+\mathrm{Tr}\big(\Sigma_r+\Sigma_g-2(\Sigma_r\Sigma_g)^{1/2}\big)$ (lower is better). FID is our primary metric, since IS rewards ImageNet object structure that paintings lack.
 
 \section{Method and Experimental Setup}
-\textbf{Data and architecture.} Each painting is center-cropped, resized to $64\times64$ (Lanczos), scaled to $[-1,1]$, and randomly flipped horizontally. Style labels are unused. The DCGAN generator~\cite{radford2016dcgan} (3.8M parameters) maps $z$ through a $4\times4$ transposed convolution and three stride-2 transposed-conv/BatchNorm/ReLU blocks (512$\to$64 channels) to a $\tanh$ output layer. The discriminator (2.8M parameters) mirrors it with four stride-2 convolutions with LeakyReLU(0.2) and a final $4\times4$ convolution that outputs a logit. Every discriminator layer is spectrally normalized, with no BatchNorm. We sample from an exponential moving average (EMA) of the generator weights~\cite{yazici2019unusual}. Hyperparameters are listed in Table~\ref{tab:hparams}.
+\textbf{Data and architecture.} Each painting is center-cropped, resized to $64\times64$ (Lanczos), scaled to $[-1,1]$, and randomly flipped horizontally. Style labels are unused. The DCGAN generator~\cite{radford2016dcgan} (3.8M parameters) maps $z$ through a $4\times4$ transposed convolution and three stride-2 transposed-conv/BatchNorm/ReLU blocks (512$\to$64 channels) to a $\tanh$ output layer. The discriminator (2.8M parameters) mirrors it with four stride-2 convolutions with LeakyReLU(0.2) and a final $4\times4$ convolution that outputs a logit. Every discriminator layer is spectrally normalized, with no BatchNorm. Samples use an exponential moving average (EMA) of $G$'s weights~\cite{yazici2019unusual} (Table~\ref{tab:hparams}).
 
 \begin{table}[h]
 \centering
@@ -81,14 +81,15 @@ Loss / precision & hinge (Eq.~\ref{eq:hinge}) / bf16 & D steps per G step / EMA 
 \vspace{-0.8em}
 \end{figure}
 
-\textbf{Training dynamics.} In the baseline (Fig.~\ref{fig:training}a), $\mathcal{L}_D$ falls to about 1.0 by 6k iterations and then climbs toward 1.8, while $\mathcal{L}_G$ falls to about 0.4. Since $\mathcal{L}_D=2$ corresponds to a discriminator at chance, the spectrally normalized $D$ steadily loses its edge. FID nevertheless falls monotonically (Fig.~\ref{fig:training}b), from 231 at epoch 10 to 124 at epoch 30, 81 at epoch 50, and 61.5 at epoch 100, so the losses alone are a poor progress signal. \TODO{TTUR dynamics + comparison, Table~\ref{tab:metrics}.}
+\textbf{Training dynamics.} In the baseline (Fig.~\ref{fig:training}a), $\mathcal{L}_D$ falls to about 1.0 by 6k iterations, then climbs toward 1.8 (chance level is 2) while $\mathcal{L}_G$ falls to 0.4, so $D$ steadily loses its edge. FID nevertheless falls monotonically (Fig.~\ref{fig:training}b), from 231 at epoch 10 to 124 at epoch 30, 81 at epoch 50, and 61.5 at epoch 100, so the losses alone are a poor progress signal. \textbf{TTUR ablation.} A two-timescale update rule~\cite{heusel2017gans} with lr$_D$ = 4$\times$lr$_G$ kept $\mathcal{L}_D$ below 1.1 for 30 epochs, but $\mathcal{L}_D$ still drifted to 1.67, and FID trailed the baseline at every checkpoint (75.3 vs.\ 61.5; Table~\ref{tab:metrics}). Halving lr$_G$ hurt more than a stronger $D$ helped.
 
 \begin{figure}[t]
 \centering
-\begin{minipage}[c]{0.46\textwidth}
+\begin{minipage}[c]{0.43\textwidth}
 \includegraphics[width=\linewidth]{figs/samples_dcgan64.png}
 \end{minipage}\hfill
-\begin{minipage}[c]{0.51\textwidth}
+\begin{minipage}[c]{0.54\textwidth}
+\vspace{0.3em}
 \captionof{table}{Epoch-100 scores (10k samples, EMA $G$).}
 \label{tab:metrics}
 \centering\small
@@ -98,7 +99,7 @@ Loss / precision & hinge (Eq.~\ref{eq:hinge}) / bf16 & D steps per G step / EMA 
 \midrule
 Real images & -- & 7.62 \\
 Baseline (lr$_G$ = lr$_D$ = 2e-4) & 61.5 & 4.64 \\
-TTUR (lr$_G$ 1e-4, lr$_D$ 4e-4) & \TODO{} & \TODO{} \\
+TTUR (lr$_G$ 1e-4, lr$_D$ 4e-4) & 75.3 & 3.98 \\
 \bottomrule
 \end{tabular}
 \vspace{0.5em}
@@ -107,11 +108,11 @@ TTUR (lr$_G$ 1e-4, lr$_D$ 4e-4) & \TODO{} & \TODO{} \\
 \vspace{-0.5em}
 \caption{Uncurated baseline samples at epoch 100 (left) and latent interpolations (bottom right).}
 \label{fig:samples}
-\vspace{-1em}
+\vspace{-0.4em}
 \end{figure}
 
 \section{Discussion}
-\textbf{Mode collapse.} Around epoch 20, many samples shared a pale central blob (FID 159) as $\mathcal{L}_D$ rose from 0.96 to 1.33, a partial mode collapse. Diversity recovered by epoch 30, though a bust-like motif recurs. \textbf{What is learned.} Samples (Fig.~\ref{fig:samples}) reproduce palettes, brushwork, and coarse layouts (horizons, lit figures on dark grounds, sketches) but not coherent figures or faces, which matches the low IS. Smooth interpolations suggest the model is not memorizing paintings. \textbf{Limitations.} We use one seed per run and $64^2$ resolution, and our torchvision-Inception FID is not comparable to published values. Style conditioning and higher resolution are natural next steps.
+\textbf{Mode collapse.} Around epoch 20, many samples shared a pale central blob (FID 159) as $\mathcal{L}_D$ rose from 0.96 to 1.33, a partial mode collapse. Diversity recovered by epoch 30, though a bust-like motif recurs. \textbf{What is learned.} Samples (Fig.~\ref{fig:samples}) reproduce palettes, brushwork, and coarse layouts (horizons, lit figures on dark grounds, sketches) but not coherent figures or faces, which matches the low IS. Smooth interpolations suggest the model is not memorizing paintings. \textbf{Limitations.} We use one seed and $64^2$ resolution, and torchvision-Inception FID is not comparable to published values.
 
 {\small
 \begin{thebibliography}{9}
